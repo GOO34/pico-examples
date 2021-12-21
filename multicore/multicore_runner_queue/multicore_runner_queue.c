@@ -20,7 +20,7 @@ typedef struct
 queue_t call_queue;
 queue_t results_queue;
 
-void core1_entry() {
+void Core1_Entry() {
     while (1) {
         // Function pointer is passed to us via the queue_entry_t which also
         // contains the function parameter.
@@ -76,7 +76,7 @@ int main() {
     queue_init(&call_queue, sizeof(queue_entry_t), 2);
     queue_init(&results_queue, sizeof(int32_t), 2);
 
-    multicore_launch_core1(core1_entry);
+    multicore_launch_core1(Core1_Entry);
 
     queue_entry_t entry = {&factorial, TEST_NUM};
     queue_add_blocking(&call_queue, &entry);

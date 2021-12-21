@@ -51,3 +51,6 @@ add_subdirectory(timer)
 add_subdirectory(uart)
 add_subdirectory(usb)
 add_subdirectory(watchdog)
+
+# GJS in subdirectories:
+add_subdirectory(GJS)

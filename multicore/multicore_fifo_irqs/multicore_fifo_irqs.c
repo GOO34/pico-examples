@@ -32,7 +32,7 @@ void core1_sio_irq() {
     multicore_fifo_clear_irq();
 }
 
-void core1_entry() {
+void Core1_Entry() {
     multicore_fifo_clear_irq();
     irq_set_exclusive_handler(SIO_IRQ_PROC1, core1_sio_irq);
 
@@ -53,7 +53,7 @@ int main() {
     // We MUST start the other core before we enabled FIFO interrupts.
     // This is because the launch uses the FIFO's, enabling interrupts before
     // they are used for the launch will result in unexpected behaviour.
-    multicore_launch_core1(core1_entry);
+    multicore_launch_core1(Core1_Entry);
 
     irq_set_exclusive_handler(SIO_IRQ_PROC0, core0_sio_irq);
     irq_set_enabled(SIO_IRQ_PROC0, true);

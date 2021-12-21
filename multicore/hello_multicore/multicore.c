@@ -10,7 +10,7 @@
 
 #define FLAG_VALUE 123
 
-void core1_entry() {
+void Core1_Entry() {
 
     multicore_fifo_push_blocking(FLAG_VALUE);
 
@@ -31,7 +31,7 @@ int main() {
 
     /// \tag::setup_multicore[]
 
-    multicore_launch_core1(core1_entry);
+    multicore_launch_core1(Core1_Entry);
 
     // Wait for it to start up
 

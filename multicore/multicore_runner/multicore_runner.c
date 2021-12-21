@@ -12,7 +12,7 @@
 
 #define FLAG_VALUE 123
 
-void core1_entry() {
+void Core1_Entry() {
     while (1) {
         // Function pointer is passed to us via the FIFO
         // We have one incoming int32_t as a parameter, and will provide an
@@ -58,7 +58,7 @@ int main() {
     // This example dispatches arbitrary functions to run on the second core
     // To do this we run a dispatcher on the second core that accepts a function
     // pointer and runs it
-    multicore_launch_core1(core1_entry);
+    multicore_launch_core1(Core1_Entry);
 
     multicore_fifo_push_blocking((uintptr_t) &factorial);
     multicore_fifo_push_blocking(TEST_NUM);
