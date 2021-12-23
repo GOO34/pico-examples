@@ -9,7 +9,9 @@
 #define CR 13
 
 #define MaxRPM 3000
-#define _pulse_per_round 3000
+#define pulse_per_round 3000
+#define AccelerateTime_ms 250.0
+#define DecelerateTime_ms 250.0
 #define DegToRad (M_PI / 180.0)
 #define RadToDeg (180.0 / M_PI)
 
@@ -28,6 +30,7 @@ enum CoordinatePointPosition//座標點位置
 	TargetPosition,
 	OffsetPostiton,
 	TempPostiton,
+	TempNextPostiton,
 	PositionNumber
 }ePointPosition = PositionNumber;
 enum PointName//點名稱
@@ -51,6 +54,7 @@ enum AxisPlusValue//移動資料
 	PreviousPlus,
 	CurrentPlus,
 	TargetPlus,
+	DifferencePlus,
 	AxisPlusNumber
 }eAxisPlusValue = AxisPlusNumber;
 
@@ -67,6 +71,7 @@ double AxisPosition[AxisNumber][PositionNumber];//軸位置
 double MovableRange[AxisNumber][RangePointNumber];//移動範圍
 int AxisPlusData[AxisNumber][AxisPlusNumber];//軸移動資料
 int RunSpeedPercentage = 100;//運行速度百分比
+int SlowestSpeedAxisNum = -1;//最慢軸編號
 double SlowestSpeed = 0;//最慢速度
 
 int command;
@@ -78,7 +83,6 @@ int ActionInt = 0;
 #pragma region Custom//自定義
 void absolute_move(double current_position, double target_position, double accelerate_time_ms, double decelerate_time_ms, double max_speed, double initial_speed, double final_speed)
 {
-	int pulse_per_round = _pulse_per_round;
 	double mm_per_pulse = _mm_per_pulse;
 	/*
 	* S = (Vi +Vmax) * Tacc / 2 + Vmax * (Tt - Tacc - Tde) + (Vmax + Vf) * Tde / 2;
@@ -86,7 +90,17 @@ void absolute_move(double current_position, double target_position, double accel
 	* Tt = Tmax + Tacc +Tde;
 	*/
 
-	int max_time_ms = (int)round(((target_position - current_position) - (1 / 2) * ((initial_speed + max_speed) * accelerate_time_ms + (max_speed + final_speed) * decelerate_time_ms)) / max_speed);
+	int max_time_ms = (int)
+		round
+		(
+			(
+				(target_position - current_position) - (1 / 2) * 
+				(
+					(initial_speed + max_speed) * accelerate_time_ms + 
+					(max_speed + final_speed) * decelerate_time_ms
+				)
+			) / max_speed
+		);
 	//int total_time_ms = (int)round(max_time_ms - accelerate_time_ms - decelerate_time_ms);
 
 	//最高速度-pulse週期(ms)
@@ -182,7 +196,7 @@ void Axis_Resolution()//各軸輸出解析計算
 		if (i != 0) printf(", ");
 		
 		eSCARA = i;
-		double MotorOutResolution = (double)_pulse_per_round * ReductionRation[eSCARA];
+		double MotorOutResolution = (double)pulse_per_round * ReductionRation[eSCARA];
 		
 		if (eSCARA == J1 || eSCARA == J3)
 		{
@@ -200,10 +214,9 @@ void Axis_Resolution()//各軸輸出解析計算
 void Max_Output_Frequency()//最大輸出頻率計算
 {
 	printf("Max Output Frequency = [");
-	
 	for (size_t i = 0; i < AxisNumber; i++)
 	{
-		MaxOutputFrequency[i] = MaxRPM * _pulse_per_round;
+		MaxOutputFrequency[i] = MaxRPM * pulse_per_round;
 
 		if (i != 0)
 			printf(", %d plus/rev", MaxOutputFrequency[i]);
@@ -238,12 +251,21 @@ void Slowest_Speed()//最慢速
 		MaxOutputSpeed[eSCARA] = (double)((MaxRPM / ReductionRation[eSCARA]) * ScrewPitch[eSCARA]);
 		switch (eSCARA)
 		{
-			case J2: SlowestSpeed = MaxOutputSpeed[J2]; break;
-			case J4: if (MaxOutputSpeed[J4] < SlowestSpeed) SlowestSpeed = MaxOutputSpeed[J2]; break;
+			case J2:
+				SlowestSpeed = MaxOutputSpeed[eSCARA];
+				SlowestSpeedAxisNum = eSCARA;
+				break;
+			case J4:
+				if (MaxOutputSpeed[eSCARA] < SlowestSpeed)
+				{
+					SlowestSpeed = MaxOutputSpeed[eSCARA];
+					SlowestSpeedAxisNum = eSCARA;
+				}
+				break;
 			default: break;
 		}
 	}
-	printf("Slowest Speed = %6.f\n", SlowestSpeed);
+	printf("Slowest Speed = %6.f mm/min\n", SlowestSpeed);
 }
 void PrintCoordinatePoint()//Print全部設定座標點
 {
@@ -263,7 +285,7 @@ void PrintCoordinatePoint()//Print全部設定座標點
 }
 void PrintAxisPosition()//Print全部軸位置
 {
-	printf("Axis Position>>\n");
+	printf("Axis Position >>\n");
 	for (size_t i = 0; i < AxisNumber; i++) 
 	{
 		eSCARA = i;
@@ -273,6 +295,22 @@ void PrintAxisPosition()//Print全部軸位置
 			ePointPosition = j;
 			if(j != 0) printf(", ");
 			printf("%.6f", AxisPosition[eSCARA][ePointPosition]);
+		}
+		printf("]\n");
+	}
+}
+void PrintAxisPlus()//Print全部軸Plus
+{
+	printf("Axis Plus >>\n");
+	for (size_t i = 0; i < AxisNumber; i++) 
+	{
+		eSCARA = i;
+		printf("\t[");
+		for (size_t j = 0; j < AxisPlusNumber; j++)
+		{
+			eAxisPlusValue = j;
+			if(j != 0) printf(", ");
+			printf("%d", AxisPlusData[eSCARA][eAxisPlusValue]);
 		}
 		printf("]\n");
 	}
@@ -346,7 +384,36 @@ void SetToTempPosition(int PointPos)//設定到動態座標點
 	for (size_t i = 0; i < PointNameNumber; i++)
 		CoordinatePoint[TempPostiton][i] = CoordinatePoint[PointPos][i] - CoordinatePoint[OffsetPostiton][i];
 }
-void CalculateJ1J2J3(double AngleRad, int tPos)
+void CalculateAxisPlus()
+{
+	for (size_t i = 0; i < AxisNumber; i++)
+	{
+		eSCARA = i;
+		switch (eSCARA)
+			{
+				case J1:
+					AxisPlusData[eSCARA][CurrentPlus] = (int)((AxisPosition[eSCARA][CurrentPosition] * RadToDeg) / AxisResolution[eSCARA]);
+					AxisPlusData[eSCARA][TargetPlus] = (int)((AxisPosition[eSCARA][TargetPosition] * RadToDeg) / AxisResolution[eSCARA]);
+					break;
+				case J2:
+					AxisPlusData[eSCARA][CurrentPlus] = (int)(AxisPosition[eSCARA][CurrentPosition] / AxisResolution[eSCARA]);
+					AxisPlusData[eSCARA][TargetPlus] = (int)(AxisPosition[eSCARA][TargetPosition] / AxisResolution[eSCARA]);
+					break;
+				case J3:
+					AxisPlusData[eSCARA][CurrentPlus] = (int)((AxisPosition[eSCARA][CurrentPosition] * RadToDeg) / AxisResolution[eSCARA]);
+					AxisPlusData[eSCARA][TargetPlus] = (int)((AxisPosition[eSCARA][TargetPosition] * RadToDeg) / AxisResolution[eSCARA]);
+					break;
+				case J4:
+					AxisPlusData[eSCARA][CurrentPlus] = (int)(AxisPosition[eSCARA][CurrentPosition] / AxisResolution[eSCARA]);
+					AxisPlusData[eSCARA][TargetPlus] = (int)(AxisPosition[eSCARA][TargetPosition] / AxisResolution[eSCARA]);
+					break;
+				default: break;
+			}
+		AxisPlusData[eSCARA][DifferencePlus] = AxisPlusData[eSCARA][TargetPlus] - AxisPlusData[eSCARA][CurrentPlus];
+	}
+	PrintAxisPlus();
+}
+void CalculateAxisPos(double AngleRad, int tPos)
 {
 	double J1J2_DistanceMin = MovableRange[J1][Distance_Min] + MovableRange[J2][Distance_Min];
 	double J1J2_DistanceMax = MovableRange[J1][Distance_Max] + MovableRange[J2][Distance_Max];
@@ -356,27 +423,101 @@ void CalculateJ1J2J3(double AngleRad, int tPos)
 	// Check Distance
 	if ((PointToOriginDistance >= J1J2_DistanceMin) & (PointToOriginDistance <= J1J2_DistanceMax)) 
 	{
-		AxisPosition[J1][tPos] = AngleRad;
-		AxisPosition[J2][tPos] = PointToOriginDistance - MovableRange[J1][Distance_Max];
-		AxisPosition[J3][tPos] = (CoordinatePoint[TempPostiton][_Angle] * DegToRad) - AngleRad;
-		AxisPosition[J4][tPos] = CoordinatePoint[TempPostiton][_Z];
+		for (size_t i = 0; i < AxisNumber; i++)
+		{
+			eSCARA = i;
+			switch (eSCARA)
+			{
+				case J1: AxisPosition[eSCARA][tPos] = AngleRad; break;
+				case J2: AxisPosition[eSCARA][tPos] = PointToOriginDistance - MovableRange[J1][Distance_Max]; break;
+				case J3: AxisPosition[eSCARA][tPos] = (CoordinatePoint[TempPostiton][_Angle] * DegToRad) - AngleRad; break;
+				case J4: AxisPosition[eSCARA][tPos] = CoordinatePoint[TempPostiton][_Z]; break;
+				default: break;
+			}
+		}
 	}
 	else
 	{
 		printf("Point out of range!\n");
 	}
-	PrintAxisPosition();
 }
+double CalculateMoveTime(double MDis)//計算移動所需時間
+{
+	double MSpeed = MaxOutputSpeed[SlowestSpeedAxisNum] * ((double)RunSpeedPercentage / 100.0);// mm/min
+	double MaxSpeedMoveTime = 
+		((MDis / MSpeed) * 60000.0)
+		- ((AccelerateTime_ms * ((double)RunSpeedPercentage / 100.0)) / 2.0)
+		- ((DecelerateTime_ms * ((double)RunSpeedPercentage / 100.0)) / 2.0);
+	double TotalMoveTime = 0;
+	
+	printf("Max Speed Move Time: %.6f ms\n", MaxSpeedMoveTime);
+	if (MaxSpeedMoveTime < 0) MaxSpeedMoveTime = 0;
+	TotalMoveTime = MaxSpeedMoveTime + AccelerateTime_ms + DecelerateTime_ms;
+	printf("Total Move Time: %.6f ms\n", TotalMoveTime);
+	return TotalMoveTime;
+}
+double CalculateP2PDistance()//計算點到點距離
+{
+	double P2P_Distance = 0;
+	switch (SlowestSpeedAxisNum)
+	{
+		case J2:
+			P2P_Distance = 
+			sqrt
+			(
+				pow(CoordinatePoint[TargetPosition][_X] - CoordinatePoint[CurrentPosition][_X], 2) +
+				pow(CoordinatePoint[TargetPosition][_Y] - CoordinatePoint[CurrentPosition][_Y], 2)
+			);
+			break;
+		case J4:
+			P2P_Distance = 
+			sqrt
+			(
+				pow(CoordinatePoint[TargetPosition][_X] - CoordinatePoint[CurrentPosition][_X], 2) +
+				pow(CoordinatePoint[TargetPosition][_Y] - CoordinatePoint[CurrentPosition][_Y], 2) +
+				pow(CoordinatePoint[TargetPosition][_Z] - CoordinatePoint[CurrentPosition][_Z], 2)
+			);
+			break;
+		default: break;
+	}
+	printf("P2P Distance: %.6f mm\n", P2P_Distance);
+	return P2P_Distance;
+}
+void MovingPathSplit()//移動路徑分割
+{
+	if (SlowestSpeedAxisNum < 0) return;
+	double P2P_Dis = CalculateP2PDistance();
+	int PathSplitSize = ceil(CalculateMoveTime(P2P_Dis) * 100);
+	printf("Path split size: %d\n", PathSplitSize);
 
+	
+	
+	for (size_t i = 0; i < PathSplitSize; i++)// 未完成
+	{
+		/* code */
+		printf("%d\n", i);
+		//sleep_us(10);
+		// WriteCoordinatePoint(TargetPosition, 111.1, 111.1, 11.0, 0.0);
+		// CalculateAxisPosition_SCARA(CurrentPosition);
+		// CalculateAxisPosition_SCARA(TargetPosition);
+		// PrintAxisPosition();
+		// CalculateAxisPlus();
+
+		if (ActionInt == 'S') return;
+	}
+	
+
+
+}
 void CalculateAxisPosition_SCARA(int Pos)
 {
 	SetToTempPosition(Pos);
 
 	double Angle_Radian_J1 = atan(CoordinatePoint[TempPostiton][_Y] / CoordinatePoint[TempPostiton][_X]);
-	CalculateJ1J2J3(Angle_Radian_J1, Pos);
+	CalculateAxisPos(Angle_Radian_J1, Pos);
 }
-//TempPostiton
 
+//TempPostiton
 
 int ReceiveChar()//接收字符
 {
@@ -393,7 +534,7 @@ int ReceiveChar()//接收字符
 	}
 	Msg[i++] = '\0';
 
-	if(strlen(Msg) > 0) printf("Receive Char: %s\n", Msg);
+	if(strlen(Msg) > 0) printf("\tReceive Char >> %s\n", Msg);
 	
 	return ReceiveChar;
 }
@@ -432,7 +573,7 @@ int main() //Main Function
 	printf("<====Set Coordinate Point====>\n");
 	WriteCoordinatePoint(OffsetPostiton, -250.0, -250.0, 0.0, 0.0);
 	WriteCoordinatePoint(CurrentPosition, 100.1, 100.0, 0.0, 0.0);
-	WriteCoordinatePoint(TargetPosition, 111.1, 111.1, 11.0, 0.0);
+	WriteCoordinatePoint(TargetPosition, 250.1, 250.1, 11.0, 0.0);
 	PrintCoordinatePoint();
 	printf("<====Raspberry Pi Pico Ready====>\n");
 	multicore_launch_core1(Core1_Entry);
@@ -451,8 +592,17 @@ int main() //Main Function
 			sleep_us(125000);
 			break;
 		case 'T':
+			WriteCoordinatePoint(TargetPosition, 250.1, 250.1, 11.0, 0.0);
 			CalculateAxisPosition_SCARA(CurrentPosition);
 			CalculateAxisPosition_SCARA(TargetPosition);
+			PrintAxisPosition();
+			CalculateAxisPlus();
+			MovingPathSplit();
+			ActionInt = 0;
+			break;
+		case 't':
+			WriteCoordinatePoint(TargetPosition, 111.1, 111.1, 11.0, 0.0);
+			MovingPathSplit();
 			ActionInt = 0;
 			break;
 		
